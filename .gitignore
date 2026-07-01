@@ -1,0 +1,16 @@
+# Root gitignore
+gmail-intelligence-platform/node_modules/
+gmail-intelligence-platform/backend/node_modules/
+gmail-intelligence-platform/frontend/node_modules/
+gmail-intelligence-platform/.env
+gmail-intelligence-platform/.env.*
+gmail-intelligence-platform/dist/
+gmail-intelligence-platform/build/
+gmail-intelligence-platform/logs/
+gmail-intelligence-platform/*.log
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.code-workspace
