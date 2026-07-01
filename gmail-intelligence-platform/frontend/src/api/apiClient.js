@@ -19,7 +19,15 @@ export async function apiRequest(path, options = {}) {
 
   const response = await fetch(getBackendUrl(path), init);
   const contentType = response.headers.get('content-type') || '';
-  const payload = contentType.includes('application/json') ? await response.json() : null;
+  
+  if (!contentType.includes('application/json')) {
+    const error = new Error(`API endpoint returned non-JSON response (${contentType || 'text/plain'}). Verify that VITE_BACKEND_URL is set correctly.`);
+    error.status = response.status;
+    error.code = 'NON_JSON_RESPONSE';
+    throw error;
+  }
+
+  const payload = await response.json();
 
   if (!response.ok) {
     const error = new Error(payload?.error?.message || `Request failed: ${response.status}`);
