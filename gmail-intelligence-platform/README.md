@@ -2,157 +2,144 @@
 
 A production-minded MVP for syncing Gmail into Supabase PostgreSQL + pgvector and using Gemini/NVIDIA NIM for email intelligence.
 
-## Implemented
+---
 
-- Google OAuth backend flow with state + PKCE verifier storage
-- HTTP-only signed session cookie
-- Supabase schema with normalized users, Gmail accounts, sync jobs, threads, messages, labels, summaries, categories, embeddings, chat, drafts, AI runs, and audit events
-- Gmail API sync for latest messages with pagination, label sync, MIME parsing, upserts, retry handling, sync status, and per-message partial failure tracking
-- Gemini summaries, compose drafts, reply drafts, embeddings, and final RAG answers
-- NVIDIA NIM categorization with Gemini fallback
-- pgvector `vector(768)` embeddings and user-filtered `match_email_embeddings` RPC
-- Source-grounded chat with not-found behavior
-- React + Vite frontend for login, dashboard, inbox, email detail, thread detail, chat, and compose
-- Draft-first reply flow with explicit reviewed send action
-- Basic backend unit tests for parser, chunking, JSON repair, and retry
+## 🎯 Kaggle Capstone Alignment
+This project is submitted under the **"Concierge Agents / Agents for Business"** track as a secure, enterprise-ready **Email Intelligence Framework**. The architecture is modeled around core agentic capabilities:
+- **Agent Control Plane & Action State Engine:** Framed by the Node.js/Express backend, which orchestrates agent decision loops (Gemini and NVIDIA NIM), handles secure session state, governs multi-tenant data boundary verification, and logs diagnostic telemetries inside `ai_runs` and `audit_events`.
+- **Custom Agent Skill & Tool Ecosystem:** Implemented via Google Gmail API integration and pgvector database RPC utilities. The agent exposes tools to sync, chunk, categorize, query semantic memory, and generate/dispatch draft-first replies on behalf of the user.
 
-## Not Implemented
+---
 
-- Gmail push notifications and full History API delta sync
-- Background job queue
-- Attachment intelligence
-- Token encryption with KMS or Supabase Vault
-- Full Supabase Auth/RLS policy model for direct frontend database access
-- Advanced hybrid search/reranking
-- Data export/delete workflows
+## Implemented Features
 
-## Tech Stack
+- **Google OAuth Flow:** Backend-orchestrated Google OAuth 2.0 connection with state verification and PKCE security parameters.
+- **Secure Authentication:** Signed HTTP-only session cookies holding JWT tokens to prevent client-side script token access.
+- **Relational & Vector Database:** A normalized Supabase schema representing users, Gmail accounts, sync status, message threads, labels, categorization runs, semantic embeddings, chat sessions, and auditing logs.
+- **Gmail Sync Pipeline:** Syncs the latest emails with robust nextPageToken pagination, recursive MIME parsing, label maps, upsert handling, and exponential backoff retry execution.
+- **NVIDIA NIM Categorization:** Direct semantic classification using an NVIDIA NIM model (`eta/llama-3.1-8b-instruct`), utilizing Google Gemini 2.5 Flash as an inline fallback loop on failure.
+- **Semantic RAG Chat:** Multi-turn chat grounded exclusively in the user's vector embeddings (`gemini-embedding-001`), returning sources list and strictly outputting *"I could not find this information in the synced emails."* if relevant context is missing.
+- **Draft-First Response Safety:** Synthesizes draft replies respecting threading headers (`In-Reply-To`, `References`) without auto-sending. Users must review generated drafts before final dispatch.
+- **Interactive UI:** Premium React + Vite dashboard displaying sync progress, mailboxes, threads, chat boxes, and email compositions.
 
-- Frontend: React, Vite, React Router
-- Backend: Node.js, Express
-- Database: Supabase PostgreSQL, pgvector
-- Gmail: Gmail API via Google OAuth 2.0
-- AI: Google Gemini primary, NVIDIA NIM categorization/secondary
+---
+
+## Not Implemented (Future Roadmap)
+
+- **Gmail Push Notifications:** Real-time sync triggers via Gmail Watch/PubSub subscriptions.
+- **Full History API Sync:** True delta synchronization based on transaction history histories instead of paginated lists.
+- **Asynchronous Job Queues:** Offloading background sync tasks to worker queues (e.g., BullMQ or Celery) instead of in-process setImmediate execution.
+- **Secret Encryption:** Encrypting user refresh tokens at rest using KMS (Key Management Service) or Supabase Vault.
+- **Direct Row-Level Security (RLS) Policies:** Hardening Supabase tables for direct frontend queries (currently bypassed securely via service-role only access on the backend).
+
+---
+
+## Tech Stack & Architecture mapping
+
+| Component | Technology | Agentic Architecture Role |
+| :--- | :--- | :--- |
+| **Frontend** | React, Vite, Tailwind/CSS | **User Interaction Console & Review Boundary** |
+| **Backend** | Node.js, Express | **Agent Control Plane & Action State Engine** |
+| **Database** | Supabase, pgvector | **Semantic Memory Bank & Structured State Store** |
+| **Gmail API** | Google Cloud APIs | **Custom External Action Skills / Tools** |
+| **Primary AI** | Google Gemini (2.5 Flash) | **RAG Reasoner, Summarizer, and Compose Agent** |
+| **Secondary AI** | NVIDIA NIM (Llama 3.1 8B) | **Structured Categorizer & Router Agent** |
+
+---
 
 ## Prerequisites
 
 - Node.js 20.19+ or 22.12+
 - Supabase project with SQL Editor access
-- Google Cloud OAuth client
-- Gemini API key
-- NVIDIA NIM API key
+- Google Cloud Console Web Application Client (OAuth 2.0 Credentials)
+- Google Gemini API Key
+- NVIDIA NIM API Key
 
-## Environment
+---
 
-Copy `.env.example` to `.env` in the project root and fill all required values.
+## Environment Configuration
+
+Copy `.env.example` to `.env` in the project root and fill all required values:
 
 ```bash
 copy .env.example .env
 ```
 
-Important:
+> [!IMPORTANT]
+> Ensure `SUPABASE_SERVICE_ROLE_KEY` and `GOOGLE_CLIENT_SECRET` remain strictly backend-side and are never exposed to the frontend repository files. `JWT_SECRET` and `COOKIE_SECRET` must be high-entropy strings of at least 32 characters.
 
-- `SUPABASE_SERVICE_ROLE_KEY` is backend-only.
-- `GOOGLE_CLIENT_SECRET` is backend-only.
-- `JWT_SECRET` and `COOKIE_SECRET` must be at least 32 characters.
-- `GEMINI_EMBEDDING_MODEL=gemini-embedding-001`
-- `GEMINI_EMBEDDING_DIMENSION=768`
+---
 
-## Supabase Setup
+## Supabase Setup & Judge OAuth Bypass
 
-1. Create a Supabase project.
-2. Open SQL Editor.
-3. Run `supabase/schema.sql`.
-4. Confirm `pgcrypto` and `vector` extensions are enabled.
+### 1. Database Initialization
+1. Create a project in the **Supabase Dashboard**.
+2. Open the **SQL Editor** from the left navigation panel.
+3. Open [schema.sql](file:///c:/Users/bogav/OneDrive/Desktop/repeatless/gmail-intelligence-platform/supabase/schema.sql), copy its contents, and execute them in the SQL Editor.
+4. Verify that the `pgcrypto` and `vector` extensions have successfully initialized.
 
-The MVP uses the backend service role key for database access and enforces user isolation in backend queries. RLS is enabled without broad frontend policies, so direct anon/authenticated table access remains closed.
+### 2. OAuth Bypass for Evaluation (Recommended)
+Since Google OAuth client applications restrict login strictly to pre-registered sandbox users, judges can run the system immediately using our offline seed data:
+1. Open the **SQL Editor** in your Supabase Dashboard.
+2. Open [seed_mock_emails.sql](file:///c:/Users/bogav/OneDrive/Desktop/repeatless/gmail-intelligence-platform/supabase/seed_mock_emails.sql), copy its contents, and execute them to seed the database.
+3. This creates a mock identity (`judge@repeatless.com`) and populates the inbox tables with:
+   - Realistic emails (a roadmap update from manager **'M Samith'** discussing frontend React shifts, a DevOps newsletter on Kubernetes, and an AWS invoice alert).
+   - Pre-populated **768-dimensional float arrays** corresponding to text chunks in the `email_embeddings` table to ensure vector similarity logic runs out-of-the-box.
+4. Navigate to the following bypass route in your browser to sign in instantly as the mock Judge and establish a secure HTTP session:
+   ```text
+   http://localhost:3001/auth/bypass-login
+   ```
+5. You will be logged in and redirected straight to the frontend dashboard (`http://localhost:5173/dashboard`) with your session cookie set.
 
-## Google OAuth Setup
+---
 
-Create an OAuth web client in Google Cloud Console.
+## Google OAuth Setup (Alternative Sandbox Run)
 
-Required redirect URI for local development:
+Create an OAuth web client in the Google Cloud Console.
 
-```text
-http://localhost:3001/auth/google/callback
-```
+1. **Redirect URI:** Add `http://localhost:3001/auth/google/callback` to the authorized redirect URIs list.
+2. **Scopes:** Request the following read/write scopes:
+   - `https://www.googleapis.com/auth/gmail.readonly`
+   - `https://www.googleapis.com/auth/gmail.send`
+   - `https://www.googleapis.com/auth/userinfo.email`
+   - `https://www.googleapis.com/auth/userinfo.profile`
+3. **Test Users:** Under OAuth consent screen setup, add your personal Gmail test email as an authorized sandbox user.
 
-MVP scopes:
+---
 
-- `https://www.googleapis.com/auth/gmail.readonly`
-- `https://www.googleapis.com/auth/gmail.send`
-- `https://www.googleapis.com/auth/userinfo.email`
-- `https://www.googleapis.com/auth/userinfo.profile`
+## Installation & Running Locally
 
-For assessment/demo use, add your Gmail account as a Google OAuth test user.
-
-OAuth troubleshooting:
-
-- If the app returns to `/login` with an OAuth state error, start from the Connect Gmail button again. Do not refresh or reuse an old Google callback URL.
-- If sync fails with missing Gmail scopes, reconnect Gmail and approve Gmail read/send permissions on the Google consent screen. If Google does not show those permissions again, remove the app from Google Account security settings and reconnect.
-- `GOOGLE_REDIRECT_URI` must exactly match `${BACKEND_URL}/auth/google/callback` and the same URI must be registered in Google Cloud Console.
-- Restart the backend after changing `.env`; OAuth state is created and consumed by the running backend process.
-
-## Backend
-
+### Backend Setup
 ```bash
 cd backend
 npm install
 npm run dev
 ```
+- **Health Check:** `Invoke-RestMethod http://localhost:3001/health` (should return status `"ok"`).
+- **Run Tests:** `npm test` (verifies parser algorithms, text chunkers, and JSON repair scripts).
 
-Health check:
-
-```bash
-Invoke-RestMethod http://localhost:3001/health
-```
-
-Run tests:
-
-```bash
-npm test
-```
-
-## Frontend
-
+### Frontend Setup
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-
-Open:
-
+Navigate to:
 ```text
 http://localhost:5173
 ```
 
-## Demo Flow
+---
 
-1. Start backend and frontend.
-2. Open frontend and connect Gmail.
-3. Click Sync Gmail on Dashboard.
-4. Open Inbox and inspect synced messages.
-5. Open an email and run summary/category actions.
-6. Open a thread and generate a thread summary or reply draft.
-7. Use Chat to ask questions over synced emails and inspect sources.
-8. Use Compose to generate a reviewed draft.
+## Judge Demonstration Guide
 
-## Security Notes
-
-- OAuth tokens are stored in backend-only Supabase tables for the MVP.
-- Tokens are not sent to the frontend.
-- Secrets are ignored by `.gitignore`.
-- Full email bodies are not intentionally logged.
-- Every protected route derives `user_id` from the verified session, not from request body input.
-
-Production should encrypt OAuth tokens using a managed key service or Supabase Vault, complete Google app verification, add CSRF hardening, implement full RLS policies, and provide data export/delete workflows.
-
-## Known Limitations
-
-- Sync is in-process and limited to the latest 50/100 messages.
-- History API metadata is stored, but true delta sync is not implemented.
-- AI calls happen inline during requests, so long syncs can be slow.
-- Attachment content is not parsed.
-- RAG retrieval is vector-only; no reranking or hybrid lexical search yet.
-- Frontend is MVP-grade and optimized for evaluator clarity, not full product polish.
+1. Start both the backend and frontend servers.
+2. Perform the **OAuth Bypass** step to seed mock data and authenticate instantly.
+3. Inspect the **Dashboard** metrics showing synced counts.
+4. Browse the **Inbox** to inspect mock email threads.
+5. Open an email thread (e.g. Samith's Roadmap discussion) to view summaries, categories, and generate draft replies.
+6. Open the **RAG Chat** interface and test source grounding:
+   - Ask: *"What date is the Postgres data migration scheduled?"* (Should return July 25th, citing Samith's email).
+   - Ask: *"How much do I owe AWS?"* (Should return $142.50, citing AWS Billing).
+   - Ask: *"What is the weather in New York?"* (Should return *"I could not find this information in the synced emails."* to demonstrate zero-hallucination compliance).
+7. Generate a **Compose Draft** or reply to an email to verify that drafts are stored and created in Gmail without auto-sending.

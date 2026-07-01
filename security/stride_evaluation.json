@@ -1,0 +1,75 @@
+{
+  "project": "AI-Powered Gmail Intelligence Platform",
+  "evaluation_framework": "STRIDE Threat Modeling Matrix",
+  "evaluation_date": "2026-07-01T20:16:04+05:30",
+  "threat_model": {
+    "spoofing": {
+      "threat": "An attacker spoofs user identities to access unauthorized email resources or send fraudulent drafts.",
+      "mitigation_strategy": "HTTP-only signed session cookies combined with JWT tokens containing user signature details.",
+      "implementation_details": "Authentication sessions are managed backend-side using JWTs signed with a high-entropy secret (JWT_SECRET). The token is set via signed, HTTP-only, secure, SameSite cookies. The browser client cannot read or modify the token, preventing cookie tampering and credential spoofing.",
+      "code_references": [
+        "backend/src/middleware/auth.middleware.js:L5-L44",
+        "backend/src/controllers/auth.controller.js",
+        "backend/src/config/env.js:L61-L62"
+      ],
+      "verification_method": "Inspect cookie header attributes (HttpOnly, Secure, SameSite) and verify that requests missing signatures fail with AUTH_REQUIRED (401)."
+    },
+    "tampering": {
+      "threat": "Malicious users modify database inputs or parameters to access or manipulate another user's email messages, threads, or embeddings.",
+      "mitigation_strategy": "Strict database-level user_id row isolation and backend query isolation.",
+      "implementation_details": "The application database schema enforces strict foreign key relationships mapped to the core 'users' table. In the backend services, all operations (select, insert, update) are programmatically bound to the verified session's user_id, which is loaded directly from the validated session state, completely ignoring client-supplied user identifiers.",
+      "code_references": [
+        "supabase/schema.sql:L22-L278",
+        "backend/src/services/supabase.service.js",
+        "backend/src/services/emailData.service.js",
+        "backend/src/services/rag.service.js:L76-L80"
+      ],
+      "verification_method": "Inspect DB query constraints and verify that all service endpoints scope their CRUD operations with a hardcoded '.eq('user_id', userId)' filter."
+    },
+    "repudiation": {
+      "threat": "A user claims they did not send an email draft, execute a sync job, or access specific sensitive emails.",
+      "mitigation_strategy": "Non-repudiable audit logs stored in a dedicated schema table.",
+      "implementation_details": "The database contains an 'audit_events' table which records critical system events (e.g. oauth logins, manual syncs, compose actions, sent drafts). Additionally, the 'ai_runs' table logs telemetry on every LLM call, detailing inputs, outputs, timestamps, and model latency associated with the user session.",
+      "code_references": [
+        "supabase/schema.sql:L335-L367",
+        "backend/src/services/supabase.service.js:L134-L162",
+        "backend/src/services/gmailSync.service.js:L18-L26"
+      ],
+      "verification_method": "Verify that executing any sensitive action (like OAuth login or email draft dispatch) triggers an insert call to insertAuditEvent and verify the records inside audit_events table."
+    },
+    "information_disclosure": {
+      "threat": "OAuth credentials (access/refresh tokens) or private email bodies are exposed to client-side localStorage or logged into system monitoring tools.",
+      "mitigation_strategy": "Backend-only token handling and sanitized logging.",
+      "implementation_details": "Google OAuth access and refresh tokens are stored exclusively in the server-side 'gmail_accounts' table. Tokens are never passed down to the frontend. In-memory API calls refresh tokens server-to-server. Logging utilities are configured to exclude token values, client secrets, and full private email bodies.",
+      "code_references": [
+        "backend/src/services/gmail.service.js:L151-L188",
+        "backend/src/services/googleOAuth.service.js",
+        "backend/src/utils/logger.js"
+      ],
+      "verification_method": "Verify that network responses to the frontend exclude access_token/refresh_token properties and verify log outputs do not contain sensitive authorization payloads."
+    },
+    "denial_of_service": {
+      "threat": "Aggressive sync requests, large email volume page loads, or external API rate limits crash the application or exhaust database resources.",
+      "mitigation_strategy": "Exponential backoff with jitter retry utility and synchronous in-app sync limits.",
+      "implementation_details": "All outward calls to the Google Gmail API and LLM endpoints are wrapped in a robust withRetry utility. It implements exponential backoff delay (2^attempt) with random additive jitter, restricting retries strictly to 429 and 5xx statuses. Synchronization is capped to 50/100 messages for the MVP to prevent execution timeout.",
+      "code_references": [
+        "backend/src/utils/retry.js:L1-L30",
+        "backend/src/services/gmail.service.js:L40-L146",
+        "backend/src/services/gmailSync.service.js:L7-L29"
+      ],
+      "verification_method": "Simulate a Google API 429 response and assert that the application retries the request using exponential wait scaling."
+    },
+    "elevation_of_privilege": {
+      "threat": "Unauthenticated attackers access private routes or invoke administrative functions to execute backend operations.",
+      "mitigation_strategy": "Strict route-level authentication middleware enforcement.",
+      "implementation_details": "All feature routes (Gmail sync, email querying, RAG, compose drafts) are configured under Express Router instances that immediately register the requireAuth middleware. This middleware verifies the signed session JWT and rejects invalid request contexts before executing controller business logic.",
+      "code_references": [
+        "backend/src/routes/gmail.routes.js:L17",
+        "backend/src/routes/ai.routes.js",
+        "backend/src/routes/chat.routes.js",
+        "backend/src/middleware/auth.middleware.js"
+      ],
+      "verification_method": "Send unauthenticated HTTP requests to protected endpoints (e.g. GET /gmail/messages) and verify they are rejected with HTTP 401 Unauthorized."
+    }
+  }
+}

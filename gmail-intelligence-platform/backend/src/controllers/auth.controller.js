@@ -7,7 +7,9 @@ import {
   handleGoogleCallback,
   setSessionCookie
 } from '../services/googleOAuth.service.js';
+import { getUserById } from '../services/supabase.service.js';
 import logger from '../utils/logger.js';
+
 
 export const startGoogleAuth = asyncHandler(async (req, res) => {
   const authUrl = await createGoogleAuthUrl(req.query.redirect || '/dashboard');
@@ -86,3 +88,21 @@ function getOAuthFailureMessage(error) {
       return 'Google OAuth could not be completed. Start Gmail connection again.';
   }
 }
+
+export const bypassLogin = asyncHandler(async (req, res) => {
+  const mockUserId = 'd0000000-0000-0000-0000-000000000001';
+  const user = await getUserById(mockUserId);
+
+  if (!user) {
+    const error = new Error('Mock user not seeded yet. Run the seed script in your Supabase database first.');
+    error.statusCode = 404;
+    error.code = 'MOCK_USER_NOT_FOUND';
+    throw error;
+  }
+
+  const sessionToken = createSessionToken(user);
+  setSessionCookie(res, sessionToken);
+
+  res.redirect(`${env.FRONTEND_URL}/dashboard`);
+});
+

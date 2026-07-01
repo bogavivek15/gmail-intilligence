@@ -1,0 +1,176 @@
+version: "2.0"
+
+metadata:
+  name: gmail-intelligence-concierge
+  track: Concierge Agents
+  version: "1.0.0"
+  description: >
+    An AI concierge agent that orchestrates Gmail indexing, email chunking, smart categorization,
+    semantic search querying, and reviewable draft generation with user isolation.
+
+graph:
+  topology:
+    nodes:
+      - id: node_1_ingestion_chunking
+        name: Ingestion & Chunking
+        service: "gmailSync.service.js"
+        description: >
+          Authenticates with Google OAuth, retrieves the latest email messages from the Gmail API using 
+          nextPageToken pagination, parses multipart MIME bodies (HTML fallback, snippet retention), 
+          and chunks the plain text using character-boundary logic.
+        configuration:
+          max_chars_per_chunk: 2200
+          overlap_chars: 180
+          default_sync_limit: 50
+          max_sync_limit: 100
+        inputs:
+          - userId
+          - maxResults
+        outputs:
+          - email_messages
+          - email_threads
+          - email_labels
+          - text_chunks
+
+      - id: node_2_nim_categorization
+        name: NVIDIA NIM Categorization
+        service: "category.service.js"
+        description: >
+          Classifies ingested email messages into a strict taxonomy of pre-defined categories. Uses 
+          an NVIDIA NIM Llama 3.1 model as the primary engine. In case of an API or network failure,
+          falls back to Gemini 2.5 Flash as a fallback loop.
+        configuration:
+          primary_model: "eta/llama-3.1-8b-instruct"
+          fallback_model: "gemini-2.5-flash"
+          api_base: "https://integrate.api.nvidia.com"
+          temperature: 0.1
+          taxonomy:
+            - Newsletters
+            - Job / Recruitment
+            - Finance
+            - Notifications
+            - Personal
+            - Work / Professional
+        inputs:
+          - sender_name
+          - sender_email
+          - subject
+          - snippet
+          - body_text
+        outputs:
+          - category
+          - confidence
+          - reason
+          - model_used
+
+      - id: node_3_semantic_memory_bank
+        name: pgvector Semantic Memory Bank (RAG)
+        service: "embedding.service.js & rag.service.js"
+        description: >
+          Generates 768-dimensional vector embeddings for email chunks using the Gemini Embedding API.
+          Stores and queries embeddings via pgvector. Implements a Postgres RPC query matcher that
+          performs cosine similarity searches restricted by user_id to ensure tenant isolation.
+        configuration:
+          embedding_model: "gemini-embedding-001"
+          embedding_dimension: 768
+          distance_metric: "cosine"
+          rpc_function: "match_email_embeddings"
+          similarity_threshold: 0.1
+          max_retrieve_count: 6
+        inputs:
+          - query_embedding
+          - match_user_id
+          - match_count
+        outputs:
+          - matched_chunks
+          - similarity_scores
+          - sources
+
+      - id: node_4_draft_generation
+        name: Draft-First Response Generation
+        service: "draft.service.js"
+        description: >
+          Generates context-grounded drafts for new compositions or thread replies. Chronologically chunks
+          thread history to keep replies coherent. Saves generated texts into the local Supabase drafts
+          table and creates a Draft resource in the user's Gmail box. Draft-First rule prevents auto-sending.
+        configuration:
+          generation_model: "gemini-2.5-flash"
+          temperature: 0.2
+          rfc_headers_supported:
+            - In-Reply-To
+            - References
+        inputs:
+          - prompt
+          - tone
+          - threadId
+          - messageId
+        outputs:
+          - subject
+          - body
+          - assumptions
+          - missing_info
+          - gmail_draft_id
+
+  flow:
+    - start: node_1_ingestion_chunking
+    - transition:
+        from: node_1_ingestion_chunking
+        to: node_2_nim_categorization
+        trigger: "ON_MESSAGE_INGESTED"
+    - transition:
+        from: node_1_ingestion_chunking
+        to: node_3_semantic_memory_bank
+        trigger: "ON_CHUNKS_CREATED"
+    - transition:
+        from: node_3_semantic_memory_bank
+        to: node_4_draft_generation
+        trigger: "ON_USER_REPLY_REQUEST"
+
+tool_ecosystem:
+  custom_tools:
+    - name: sync_latest_emails
+      description: "Synchronizes the user's latest Gmail messages and labels into Supabase."
+      endpoint: "POST /gmail/sync"
+      scopes:
+        - "https://www.googleapis.com/auth/gmail.readonly"
+      reliability:
+        retry_policy: "exponential_backoff_with_jitter"
+        max_retries: 3
+        retry_on_status: [429, 502, 503, 504]
+
+    - name: match_email_embeddings
+      description: "Queries pgvector embeddings using cosine similarity to retrieve relevant context chunks."
+      endpoint: "PostgreSQL RPC match_email_embeddings"
+      arguments:
+        query_embedding: "vector(768)"
+        match_user_id: "uuid"
+        match_count: "integer"
+      isolation: "STRICT_USER_ISOLATION"
+
+    - name: create_gmail_draft
+      description: "Generates an editable Gmail draft with standard threading headers (In-Reply-To, References)."
+      endpoint: "Gmail API users.drafts.create"
+      scopes:
+        - "https://www.googleapis.com/auth/gmail.compose"
+
+    - name: send_gmail_draft
+      description: "Sends an approved draft using the user's connected Gmail account credentials."
+      endpoint: "Gmail API users.drafts.send"
+      scopes:
+        - "https://www.googleapis.com/auth/gmail.compose"
+
+session_memory_management:
+  isolation:
+    strategy: "database_level_isolation"
+    tenant_key: "user_id"
+    enforcement:
+      - "All Supabase operations (select, insert, update) must filter by user_id."
+      - "Database schema enables RLS by default (Supabase service role backend bypass requires manual filtering)."
+      - "Vector searches must strictly pass match_user_id."
+
+  session_context:
+    storage_table: "chat_messages"
+    history_retention: "session_id"
+    grounding_rules:
+      - "Factual claims must derive strictly from pgvector matching email chunks."
+      - "Fallback response is static: 'I could not find this information in the synced emails.' when matches are empty or similarity < 0.1."
