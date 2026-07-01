@@ -90,22 +90,24 @@ export function createSessionToken(user) {
 }
 
 export function setSessionCookie(res, token) {
+  const isProd = env.NODE_ENV === 'production';
   res.cookie(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     signed: true,
-    sameSite: 'lax',
-    secure: env.NODE_ENV === 'production',
+    sameSite: isProd ? 'none' : 'lax',
+    secure: isProd,
     maxAge: SESSION_MAX_AGE_MS,
     path: '/'
   });
 }
 
 export function clearSessionCookie(res) {
+  const isProd = env.NODE_ENV === 'production';
   res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
     signed: true,
-    sameSite: 'lax',
-    secure: env.NODE_ENV === 'production',
+    sameSite: isProd ? 'none' : 'lax',
+    secure: isProd,
     path: '/'
   });
 }
